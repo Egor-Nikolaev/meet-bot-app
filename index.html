@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Календарь</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="telegram-web-app.js"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -25,6 +25,7 @@
   header button { border: 0; background: var(--bg2); color: var(--text); border-radius: 10px;
     min-width: 36px; height: 34px; font-size: 16px; padding: 0 10px; }
   header button.today { font-size: 13px; }
+  .status { font-size: 12px; color: var(--hint); }
   .strip { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--bg); padding: 4px 8px 10px; }
   .strip button { border: 0; background: none; color: var(--text); padding: 4px 0; border-radius: 12px; }
   .strip .dw { font-size: 11px; color: var(--hint); text-transform: uppercase; }
@@ -58,6 +59,7 @@
 <header>
   <button id="prev" aria-label="Предыдущая неделя">‹</button>
   <h1 id="title">Календарь</h1>
+  <span id="status" class="status"></span>
   <button id="today" class="today">Сегодня</button>
   <button id="next" aria-label="Следующая неделя">›</button>
 </header>
@@ -95,6 +97,11 @@ async function load() {
     document.getElementById('list').innerHTML = '<div class="msg">Открой через кнопку «📅 Календарь» в боте.</div>';
     return;
   }
+  // Сначала показываем прошлый ответ из кэша, потом тихо обновляем.
+  const cacheKey = 'week_' + ymd(weekStart);
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch (e) {}
+  if (cached) { events = cached; render(); setStatus('обновляю…'); }
   try {
     // text/plain — «простой» запрос без CORS-preflight, Apps Script его принимает.
     const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -102,7 +109,10 @@ async function load() {
     const data = await r.json();
     if (data.error) throw new Error(data.error);
     events = data.events;
+    try { localStorage.setItem(cacheKey, JSON.stringify(events)); } catch (e) {}
+    setStatus('');
   } catch (e) {
+    if (cached) { setStatus('нет связи, показан кэш'); return; }
     events = [];
     document.getElementById('list').innerHTML = '<div class="msg">Не загрузилось: ' + esc(e.message) + '</div>';
     renderStrip();
@@ -110,6 +120,8 @@ async function load() {
   }
   render();
 }
+
+function setStatus(t) { document.getElementById('status').textContent = t; }
 
 function renderHeader() {
   const end = addDays(weekStart, 6);
