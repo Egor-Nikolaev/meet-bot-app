@@ -47,15 +47,39 @@
   .ev details { margin-top: 6px; }
   .ev summary { color: var(--link); font-size: 13px; cursor: pointer; }
   .ev .desc { white-space: pre-wrap; font-size: 13px; margin-top: 6px; color: var(--text); }
-  .ev .join { margin-top: 10px; display: block; width: 100%; border: 0; border-radius: 10px; padding: 10px;
+  .ev .join, #find { margin-top: 10px; display: block; width: 100%; border: 0; border-radius: 10px; padding: 10px;
     background: var(--btn); color: var(--btn-text); font-size: 15px; font-weight: 600; }
   .empty, .msg { color: var(--hint); text-align: center; padding: 40px 0; }
   .nowline { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; margin: 4px 0 8px; }
   .nowline::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .nowline::after { content: ""; flex: 1; height: 2px; background: var(--accent); }
+  .tabs { display: flex; gap: 6px; padding: 8px 16px 0; background: var(--bg); }
+  .tabs button { flex: 1; border: 0; border-radius: 10px; padding: 8px; background: var(--bg2); color: var(--text); font-size: 14px; font-weight: 600; }
+  .tabs button.on { background: var(--btn); color: var(--btn-text); }
+  .slot { padding: 14px 16px 40px; }
+  .slot label { display: block; font-size: 13px; color: var(--hint); margin: 12px 0 6px; font-weight: 600; }
+  .slot input { width: 100%; border: 0; border-radius: 12px; padding: 12px 14px; font-size: 16px; background: var(--bg); color: var(--text); outline: none; }
+  .sugg { background: var(--bg); border-radius: 12px; margin-top: 6px; overflow: hidden; }
+  .sugg button, .person { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--text); padding: 9px 12px; text-align: left; font-size: 15px; }
+  .sugg button + button { border-top: 1px solid var(--bg2); }
+  .sugg small { color: var(--hint); display: block; font-size: 12px; }
+  .ava { width: 32px; height: 32px; border-radius: 50%; flex: none; background: var(--bg2); object-fit: cover; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: var(--hint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border-radius: 999px; padding: 4px 6px 4px 4px; font-size: 14px; }
+  .chip .ava { width: 24px; height: 24px; font-size: 11px; }
+  .chip button { border: 0; background: none; color: var(--hint); font-size: 16px; padding: 0 4px; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; border: 0; border-radius: 10px; padding: 9px 0; background: var(--bg); color: var(--text); font-size: 15px; }
+  .seg button.on { background: var(--btn); color: var(--btn-text); }
+  .win .times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .win .times button { border: 0; border-radius: 8px; padding: 7px 10px; background: var(--btn); color: var(--btn-text); font-size: 14px; font-weight: 600; }
+  .day-h { font-size: 13px; color: var(--hint); font-weight: 600; margin: 16px 0 6px; text-transform: uppercase; }
+  .note { font-size: 13px; color: var(--hint); margin: 10px 0; }
 </style>
 </head>
 <body>
+<nav class="tabs"><button data-tab="week" class="on">📅 Неделя</button><button data-tab="slot">🔍 Слот</button></nav>
+<div id="weekView">
 <header>
   <button id="prev" aria-label="Предыдущая неделя">‹</button>
   <h1 id="title">Календарь</h1>
@@ -65,6 +89,18 @@
 </header>
 <div class="strip" id="strip"></div>
 <main id="list"><div class="msg">Загружаю…</div></main>
+</div>
+<div id="slotView" class="slot" hidden>
+  <label for="who">Кого позвать</label>
+  <div class="chips" id="chips"></div>
+  <input id="who" placeholder="Начни печатать имя" autocomplete="off">
+  <div class="sugg" id="sugg"></div>
+  <label>Длительность</label>
+  <div class="seg" id="dur"><button data-m="30" class="on">30 мин</button><button data-m="45">45</button><button data-m="60">1 ч</button><button data-m="90">1,5 ч</button></div>
+  <div class="note">Ближайшие 5 рабочих дней, 10:00–19:00 МСК. Твой календарь учитывается сам.</div>
+  <button class="join" id="find">Найти время</button>
+  <div id="slots"></div>
+</div>
 
 <script>
 // Адрес веб-приложения Apps Script (/exec). Не секрет: данные отдаются только по подписи Telegram.
@@ -186,6 +222,127 @@ document.getElementById('today').onclick = () => { weekStart = mondayOf(new Date
   const el = document.getElementById('d-' + selected); if (el) el.scrollIntoView({ block: 'start' }); }); };
 
 load().then(() => { const el = document.getElementById('d-' + selected); if (el) el.scrollIntoView({ block: 'start' }); });
+
+// ───────────── вкладки ─────────────
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  const slot = b.dataset.tab === 'slot';
+  document.getElementById('weekView').hidden = slot;
+  document.getElementById('slotView').hidden = !slot;
+  if (slot) loadPeople();
+});
+
+async function api(body) {
+  const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(Object.assign({ initData: tg.initData }, body)) });
+  const data = await r.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+// ───────────── подбор слота ─────────────
+let people = null, me = '', picked = [], duration = 30, peopleLoading = null;
+
+async function loadPeople() {
+  if (people || peopleLoading) return peopleLoading;
+  try {
+    const c = JSON.parse(localStorage.getItem('people_v1') || 'null');
+    if (c && Date.now() - c.t < 864e5) { people = c.people; me = c.me; return; }
+  } catch (e) {}
+  if (!tg || !tg.initData) return;
+  document.getElementById('who').placeholder = 'Загружаю справочник…';
+  peopleLoading = api({ action: 'people' }).then(d => {
+    people = d.people.filter(p => p.e !== d.me); me = d.me;
+    try { localStorage.setItem('people_v1', JSON.stringify({ t: Date.now(), people, me })); } catch (e) {}
+  }).catch(e => { document.getElementById('sugg').innerHTML = '<div class="note">Справочник не загрузился: ' + esc(e.message) + '</div>'; })
+    .finally(() => { peopleLoading = null; document.getElementById('who').placeholder = 'Начни печатать имя'; });
+  return peopleLoading;
+}
+
+const TR = {а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ы:'y',э:'e',ю:'yu',я:'ya',ь:'',ъ:''};
+const norm = s => s.toLowerCase().replace(/ё/g, 'е');
+const translit = s => norm(s).split('').map(c => TR[c] !== undefined ? TR[c] : c).join('');
+
+function search(q) {
+  q = norm(q.trim()); if (!q || !people) return [];
+  const qs = [q, translit(q)];
+  const hit = p => {
+    const words = norm(p.n).split(/\s+/).concat([norm(p.e)]);
+    const tw = words.map(translit);
+    return qs.some(x => words.some(w => w.startsWith(x)) || tw.some(w => w.startsWith(x)) || norm(p.n).startsWith(x));
+  };
+  return people.filter(p => !picked.some(x => x.e === p.e) && hit(p)).slice(0, 8);
+}
+
+function ava(p) {
+  if (p.p) return '<img class="ava" src="' + esc(p.p) + '" alt="">';
+  const ini = p.n.split(/\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+  return '<span class="ava">' + esc(ini) + '</span>';
+}
+
+function renderChips() {
+  const el = document.getElementById('chips');
+  el.innerHTML = picked.map((p, i) => '<span class="chip">' + ava(p) + esc(p.n) + '<button data-i="' + i + '" aria-label="Убрать">×</button></span>').join('');
+  el.querySelectorAll('button').forEach(b => b.onclick = () => { picked.splice(+b.dataset.i, 1); renderChips(); });
+}
+
+const who = document.getElementById('who');
+who.oninput = async () => {
+  if (!people) await loadPeople();
+  const list = search(who.value);
+  const el = document.getElementById('sugg');
+  el.innerHTML = list.map((p, i) => '<button data-i="' + i + '">' + ava(p) + '<span>' + esc(p.n) + '<small>' + esc(p.e) + '</small></span></button>').join('')
+    || (who.value.trim() && people ? '<div class="note" style="padding:8px 12px">Никого не нашёл</div>' : '');
+  el.querySelectorAll('button').forEach(b => b.onclick = () => {
+    picked.push(list[+b.dataset.i]); who.value = ''; el.innerHTML = ''; renderChips(); who.focus();
+  });
+};
+
+document.querySelectorAll('#dur button').forEach(b => b.onclick = () => {
+  duration = +b.dataset.m;
+  document.querySelectorAll('#dur button').forEach(x => x.classList.toggle('on', x === b));
+});
+
+const utc = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+function createUrl(startIso) {
+  const s = new Date(startIso), e = new Date(s.getTime() + duration * 60e3);
+  return 'https://calendar.google.com/calendar/r/eventedit?authuser=' + encodeURIComponent(me) +
+    '&dates=' + utc(s) + '/' + utc(e) + '&add=' + encodeURIComponent(picked.map(p => p.e).join(','));
+}
+const nameOf = e => (picked.find(p => p.e === e) || {}).n || (e === me ? 'ты' : e);
+const dayTitle = d => DOW[d.getDay()] + ', ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
+
+document.getElementById('find').onclick = async () => {
+  const out = document.getElementById('slots');
+  if (!picked.length) { out.innerHTML = '<div class="note">Добавь хотя бы одного человека.</div>'; return; }
+  out.innerHTML = '<div class="msg">Сверяю календари…</div>';
+  let r;
+  try { r = await api({ action: 'slots', emails: picked.map(p => p.e), duration }); }
+  catch (e) { out.innerHTML = '<div class="msg">Не получилось: ' + esc(e.message) + '</div>'; return; }
+  me = r.me || me;
+  let html = '';
+  if (r.unknown.length) html += '<div class="note">⚠️ Не видно календарь: ' + esc(r.unknown.map(nameOf).join(', ')) + '. Их занятость не учтена.</div>';
+  if (r.windows.length) {
+    let lastDay = '';
+    r.windows.forEach(w => {
+      const s = new Date(w.start), e = new Date(w.end), k = ymd(s);
+      if (k !== lastDay) { html += '<h2 class="day-h">' + dayTitle(s) + '</h2>'; lastDay = k; }
+      const starts = [];
+      for (let t = s.getTime(); t + duration * 60e3 <= e.getTime() && starts.length < 6; t += 30 * 60e3) starts.push(new Date(t));
+      html += '<div class="ev win"><div class="n">' + hm(s) + '–' + hm(e) + '</div><div class="t">свободны все</div><div class="times">' +
+        starts.map(t => '<button data-s="' + t.toISOString() + '">' + hm(t) + '</button>').join('') + '</div></div>';
+    });
+  } else if (r.partial.length) {
+    html += '<div class="note">Общего окна нет. Ближе всего:</div>';
+    r.partial.forEach(p => {
+      const s = new Date(p.start);
+      html += '<div class="ev win" style="border-left-color:var(--accent)"><div class="n">' + dayTitle(s) + ', ' + hm(s) + '</div><div class="t">занят(а): ' +
+        esc(p.busy.map(nameOf).join(', ')) + '</div><div class="times"><button data-s="' + s.toISOString() + '">Всё равно создать</button></div></div>';
+    });
+  } else html += '<div class="msg">Свободного времени не нашлось.</div>';
+  out.innerHTML = html;
+  out.querySelectorAll('.times button').forEach(b => b.onclick = () => openLink(createUrl(b.dataset.s)));
+};
 </script>
 </body>
 </html>
