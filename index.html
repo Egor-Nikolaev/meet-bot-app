@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Календарь</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f3f5);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #646a73);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --accent: #e53935;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg2); color: var(--text);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 16px 8px;
+    display: flex; align-items: center; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--hint) 25%, transparent); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; text-transform: capitalize; }
+  header button { border: 0; background: var(--bg2); color: var(--text); border-radius: 10px;
+    min-width: 36px; height: 34px; font-size: 16px; padding: 0 10px; }
+  header button.today { font-size: 13px; }
+  .strip { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--bg); padding: 4px 8px 10px; }
+  .strip button { border: 0; background: none; color: var(--text); padding: 4px 0; border-radius: 12px; }
+  .strip .dw { font-size: 11px; color: var(--hint); text-transform: uppercase; }
+  .strip .dn { font-size: 17px; margin-top: 2px; width: 34px; height: 34px; line-height: 34px; border-radius: 50%; margin-inline: auto; }
+  .strip .has .dn::after { content: ""; display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--btn); margin: -6px auto 0; }
+  .strip .is-today .dn { color: var(--btn); font-weight: 600; }
+  .strip .sel .dn { background: var(--btn); color: var(--btn-text); }
+  .strip .sel.has .dn::after { background: var(--btn-text); }
+  main { padding: 12px 16px 40px; }
+  .day { margin-bottom: 18px; }
+  .day h2 { font-size: 13px; color: var(--hint); font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .02em; }
+  .ev { background: var(--bg); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+    border-left: 4px solid var(--btn); }
+  .ev.past { opacity: .5; }
+  .ev.now { border-left-color: var(--accent); }
+  .ev.declined { opacity: .45; text-decoration: line-through; }
+  .ev .t { font-size: 13px; color: var(--hint); }
+  .ev .n { font-weight: 600; margin-top: 2px; word-break: break-word; }
+  .ev details { margin-top: 6px; }
+  .ev summary { color: var(--link); font-size: 13px; cursor: pointer; }
+  .ev .desc { white-space: pre-wrap; font-size: 13px; margin-top: 6px; color: var(--text); }
+  .ev .join { margin-top: 10px; display: block; width: 100%; border: 0; border-radius: 10px; padding: 10px;
+    background: var(--btn); color: var(--btn-text); font-size: 15px; font-weight: 600; }
+  .empty, .msg { color: var(--hint); text-align: center; padding: 40px 0; }
+  .nowline { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; margin: 4px 0 8px; }
+  .nowline::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .nowline::after { content: ""; flex: 1; height: 2px; background: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <button id="prev" aria-label="Предыдущая неделя">‹</button>
+  <h1 id="title">Календарь</h1>
+  <button id="today" class="today">Сегодня</button>
+  <button id="next" aria-label="Следующая неделя">›</button>
+</header>
+<div class="strip" id="strip"></div>
+<main id="list"><div class="msg">Загружаю…</div></main>
+
+<script>
+// Адрес веб-приложения Apps Script (/exec). Не секрет: данные отдаются только по подписи Telegram.
+const API_URL = '__API_URL__';
+
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const DOW = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const MONTHS_N = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+
+let weekStart = mondayOf(new Date());
+let selected = ymd(new Date());
+let events = [];
+
+function mondayOf(d) { const x = new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function hm(d) { return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0'); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function evDay(e) { return e.allDay ? e.start.slice(0,10) : ymd(new Date(e.start)); }
+
+function openLink(url) { if (tg && tg.openLink) tg.openLink(url); else window.open(url, '_blank'); }
+
+async function load() {
+  document.getElementById('list').innerHTML = '<div class="msg">Загружаю…</div>';
+  renderHeader();
+  if (!tg || !tg.initData) {
+    document.getElementById('list').innerHTML = '<div class="msg">Открой через кнопку «📅 Календарь» в боте.</div>';
+    return;
+  }
+  try {
+    // text/plain — «простой» запрос без CORS-preflight, Apps Script его принимает.
+    const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ initData: tg.initData, from: weekStart.toISOString(), to: addDays(weekStart, 7).toISOString() }) });
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    events = data.events;
+  } catch (e) {
+    events = [];
+    document.getElementById('list').innerHTML = '<div class="msg">Не загрузилось: ' + esc(e.message) + '</div>';
+    renderStrip();
+    return;
+  }
+  render();
+}
+
+function renderHeader() {
+  const end = addDays(weekStart, 6);
+  document.getElementById('title').textContent = weekStart.getMonth() === end.getMonth()
+    ? MONTHS_N[weekStart.getMonth()] + ' ' + weekStart.getFullYear()
+    : MONTHS_N[weekStart.getMonth()].slice(0,3) + ' – ' + MONTHS_N[end.getMonth()].slice(0,3) + ' ' + end.getFullYear();
+}
+
+function renderStrip() {
+  const today = ymd(new Date());
+  const days = new Set(events.filter(e => !e.declined).map(evDay));
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(weekStart, i), k = ymd(d);
+    const cls = [k === today && 'is-today', k === selected && 'sel', days.has(k) && 'has'].filter(Boolean).join(' ');
+    html += '<button class="' + cls + '" data-day="' + k + '"><div class="dw">' + DOW[d.getDay()] + '</div><div class="dn">' + d.getDate() + '</div></button>';
+  }
+  const strip = document.getElementById('strip');
+  strip.innerHTML = html;
+  strip.querySelectorAll('button').forEach(b => b.onclick = () => {
+    selected = b.dataset.day; render();
+    const el = document.getElementById('d-' + selected);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+function render() {
+  renderHeader();
+  renderStrip();
+  const now = Date.now();
+  const today = ymd(new Date());
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(weekStart, i), k = ymd(d);
+    const list = events.filter(e => evDay(e) === k);
+    html += '<section class="day" id="d-' + k + '"><h2>' + DOW[d.getDay()] + ', ' + d.getDate() + ' ' + MONTHS[d.getMonth()] + (k === today ? ' · сегодня' : '') + '</h2>';
+    if (!list.length) { html += '<div class="ev" style="border-left-color:transparent;color:var(--hint)">Нет встреч</div>'; }
+    let nowDrawn = k !== today;
+    list.forEach(e => {
+      const s = new Date(e.start), en = new Date(e.end);
+      if (!nowDrawn && !e.allDay && s.getTime() > now) { html += '<div class="nowline">' + hm(new Date()) + '</div>'; nowDrawn = true; }
+      const cls = ['ev', e.declined && 'declined', !e.allDay && en.getTime() < now && 'past',
+        !e.allDay && s.getTime() <= now && en.getTime() > now && 'now'].filter(Boolean).join(' ');
+      html += '<div class="' + cls + '"><div class="t">' + (e.allDay ? 'весь день' : hm(s) + '–' + hm(en)) + (e.declined ? ' · отказался' : '') + '</div>' +
+        '<div class="n">' + esc(e.title) + '</div>';
+      if (e.location && !/^https?:/.test(e.location)) html += '<div class="t">📍 ' + esc(e.location) + '</div>';
+      if (e.description.trim()) html += '<details><summary>Описание</summary><div class="desc">' + esc(e.description.trim()) + '</div></details>';
+      if (e.link) html += '<button class="join" data-url="' + esc(e.link) + '">🎥 Подключиться</button>';
+      html += '</div>';
+    });
+    if (!nowDrawn) html += '<div class="nowline">' + hm(new Date()) + '</div>';
+    html += '</section>';
+  }
+  const listEl = document.getElementById('list');
+  listEl.innerHTML = html;
+  listEl.querySelectorAll('.join').forEach(b => b.onclick = () => openLink(b.dataset.url));
+}
+
+document.getElementById('prev').onclick = () => { weekStart = addDays(weekStart, -7); selected = ymd(weekStart); load(); };
+document.getElementById('next').onclick = () => { weekStart = addDays(weekStart, 7); selected = ymd(weekStart); load(); };
+document.getElementById('today').onclick = () => { weekStart = mondayOf(new Date()); selected = ymd(new Date()); load().then(() => {
+  const el = document.getElementById('d-' + selected); if (el) el.scrollIntoView({ block: 'start' }); }); };
+
+load().then(() => { const el = document.getElementById('d-' + selected); if (el) el.scrollIntoView({ block: 'start' }); });
+</script>
+</body>
+</html>
